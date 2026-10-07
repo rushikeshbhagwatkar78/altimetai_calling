@@ -36,6 +36,10 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///nagpur_estates.db").strip()
 
+# SQLAlchemy 1.4+ and 2.0+ require 'postgresql://' instead of legacy 'postgres://' (common in Render / Heroku)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # Configure engine
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
