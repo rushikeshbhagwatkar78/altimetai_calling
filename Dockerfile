@@ -17,7 +17,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create non-root user for Hugging Face Spaces compatibility
 RUN useradd -m -u 1000 user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    MALLOC_ARENA_MAX=2 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1
 
 # Copy complete application files
 COPY --chown=user:user . .

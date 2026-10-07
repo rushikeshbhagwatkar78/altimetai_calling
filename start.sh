@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+# Optimize Linux glibc memory arenas & Python footprint for 512MB RAM containers
+export MALLOC_ARENA_MAX=2
+export PYTHONUNBUFFERED=1
+export PYTHONOPTIMIZE=1
+
 echo "============================================================"
 echo " Starting Nagpur Estates AI Voice CRM & Production Services "
 echo "============================================================"
