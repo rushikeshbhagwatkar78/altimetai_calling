@@ -40,6 +40,24 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///nagpur_estates.db").strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Detect if running in cloud (Render, Hugging Face, etc.) with an unresolvable localhost database URL
+is_cloud = bool(os.getenv("RENDER") or os.getenv("SPACE_ID") or (os.getenv("PORT") and os.getenv("PORT") != "8000"))
+if is_cloud and ("localhost" in DATABASE_URL or "127.0.0.1" in DATABASE_URL):
+    logger.warning(
+        "DATABASE_URL is pointing to 'localhost' inside a cloud container where no local PostgreSQL server runs. "
+        "Falling back to built-in SQLite (nagpur_estates.db). To use PostgreSQL, provide a remote database URL."
+    )
+    DATABASE_URL = "sqlite:///nagpur_estates.db"
+
+def setup_sqlite_pragmas(target_engine):
+    @event.listens_for(target_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+
 # Configure engine
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
@@ -52,13 +70,7 @@ engine = create_engine(
 )
 
 if DATABASE_URL.startswith("sqlite"):
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=5000")
-        cursor.close()
+    setup_sqlite_pragmas(engine)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -337,8 +349,30 @@ def seed_initial_data(db: Session):
 
 def init_db():
     """Create all database tables and seed initial catalog."""
+    global engine, SessionLocal, DATABASE_URL
     logger.info(f"Initializing database schema at: {DATABASE_URL}")
-    Base.metadata.create_all(bind=engine)
-    with get_db_session() as db:
-        seed_initial_data(db)
-    logger.info("Database schema initialized successfully.")
+    try:
+        Base.metadata.create_all(bind=engine)
+        with get_db_session() as db:
+            seed_initial_data(db)
+        logger.info("Database schema initialized successfully.")
+    except Exception as e:
+        if not DATABASE_URL.startswith("sqlite"):
+            logger.error(
+                f"Failed to connect to primary database at {DATABASE_URL} ({e}). "
+                "Automatically falling back to local SQLite database (nagpur_estates.db)."
+            )
+            DATABASE_URL = "sqlite:///nagpur_estates.db"
+            engine = create_engine(
+                DATABASE_URL,
+                connect_args={"check_same_thread": False, "timeout": 15},
+                pool_pre_ping=True,
+            )
+            setup_sqlite_pragmas(engine)
+            SessionLocal.configure(bind=engine)
+            Base.metadata.create_all(bind=engine)
+            with get_db_session() as db:
+                seed_initial_data(db)
+            logger.info("Local SQLite database initialized and seeded successfully.")
+        else:
+            raise
